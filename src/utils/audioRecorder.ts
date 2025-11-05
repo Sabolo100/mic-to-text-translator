@@ -9,9 +9,9 @@ export class AudioRecorder {
   private analyser: AnalyserNode | null = null;
   private animationFrameId: number | null = null;
   private minChunkDuration = 2000; // Min 2 seconds
-  private maxChunkDuration = 12000; // Max 12 seconds
-  private silenceThreshold = 0.01; // Audio energy threshold
-  private silenceDuration = 1000; // 1 second of silence = sentence end
+  private maxChunkDuration = 8000; // Max 8 seconds (faster response)
+  private silenceThreshold = 0.02; // Audio energy threshold (less sensitive to noise)
+  private silenceDuration = 600; // 600ms of silence = sentence end (faster detection)
   
   private chunkStartTime = 0;
   private lastSoundTime = 0;

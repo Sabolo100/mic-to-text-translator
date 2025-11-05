@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 
 interface TranslationDisplayProps {
+  title: string;
   text: string;
   isLoading: boolean;
 }
 
-export const TranslationDisplay = ({ text, isLoading }: TranslationDisplayProps) => {
+export const TranslationDisplay = ({ title, text, isLoading }: TranslationDisplayProps) => {
   const displayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -15,11 +16,18 @@ export const TranslationDisplay = ({ text, isLoading }: TranslationDisplayProps)
   }, [text]);
 
   return (
-    <div className="relative w-full max-w-4xl mx-auto">
+    <div className="relative w-full">
       <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-accent/10 rounded-2xl blur-3xl opacity-50" />
+      
+      <div className="relative mb-2">
+        <h3 className="text-lg font-semibold text-foreground/80">
+          {title}
+        </h3>
+      </div>
+      
       <div 
         ref={displayRef}
-        className="relative bg-card/50 backdrop-blur-sm border border-border rounded-2xl p-8 min-h-[400px] max-h-[600px] overflow-y-auto shadow-2xl"
+        className="relative bg-card/50 backdrop-blur-sm border border-border rounded-2xl p-6 min-h-[300px] max-h-[500px] overflow-y-auto shadow-2xl"
       >
         {text ? (
           <p className="text-2xl md:text-3xl leading-relaxed text-foreground animate-in fade-in duration-300">

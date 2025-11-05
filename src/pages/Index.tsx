@@ -21,6 +21,7 @@ const LANGUAGES = [
 const Index = () => {
   const [inputLang, setInputLang] = useState("hu");
   const [outputLang, setOutputLang] = useState("en");
+  const [originalText, setOriginalText] = useState("");
   const [translatedText, setTranslatedText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -55,11 +56,16 @@ const Index = () => {
           throw error;
         }
 
+        if (data?.transcription) {
+          setOriginalText(prev => 
+            prev ? `${prev} ${data.transcription}` : data.transcription
+          );
+        }
+
         if (data?.translation) {
-          setTranslatedText(prev => {
-            const newText = prev ? `${prev} ${data.translation}` : data.translation;
-            return newText;
-          });
+          setTranslatedText(prev => 
+            prev ? `${prev} ${data.translation}` : data.translation
+          );
         }
       };
     } catch (error) {
@@ -86,7 +92,8 @@ const Index = () => {
     } else {
       // Start recording
       try {
-        setTranslatedText(""); // Clear previous translations
+        setOriginalText("");
+        setTranslatedText("");
         if (!audioRecorderRef.current) {
           audioRecorderRef.current = new AudioRecorder();
         }
@@ -122,7 +129,7 @@ const Index = () => {
       </header>
 
       {/* Language Selection */}
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-6">
         <div className="flex flex-col md:flex-row gap-4 md:gap-8 justify-center items-center">
           <LanguageSelector
             label="Bemeneti nyelv"
@@ -140,13 +147,8 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Translation Display */}
-      <div className="flex-1 container mx-auto px-4 py-8">
-        <TranslationDisplay text={translatedText} isLoading={isProcessing} />
-      </div>
-
       {/* Record Button */}
-      <div className="container mx-auto px-4 py-12 flex justify-center">
+      <div className="container mx-auto px-4 py-4 flex justify-center">
         <div className="relative">
           {isRecording && (
             <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
@@ -155,6 +157,22 @@ const Index = () => {
             isRecording={isRecording}
             onClick={toggleRecording}
             disabled={isProcessing && !isRecording}
+          />
+        </div>
+      </div>
+
+      {/* Translation Display - Two columns */}
+      <div className="flex-1 container mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <TranslationDisplay 
+            title="Eredeti szöveg"
+            text={originalText} 
+            isLoading={isProcessing}
+          />
+          <TranslationDisplay 
+            title="Fordítás"
+            text={translatedText} 
+            isLoading={isProcessing}
           />
         </div>
       </div>
