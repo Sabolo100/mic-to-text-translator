@@ -1,51 +1,63 @@
 
 
-## Fix: React Error #31 - Object rendered as React child
+## Fix: JSON megjelenites helyett olvasmanyos szoveg
 
-### Root Cause
+### Problema
 
-The Gemini AI model sometimes returns `parsed.original` and `parsed.translated` as nested JSON objects (e.g., `{"title": "...", "bullets": ["..."]}`) instead of plain strings. When this object reaches the `SlideTranslationCard` component and gets rendered inside `<p>{original}</p>`, React throws error #31 ("Objects are not valid as a React child").
+Az AI modell strukturalt JSON objektumot ad vissza (title, bullet_points, notes), es bar az `ensureString` fuggveny stringge alakitja, a `JSON.stringify` nyers JSON szoveget mutat a felhasznalonak.
 
-### Fix Strategy
+### Megoldas
 
-Two layers of protection:
+Ket retegu javitas:
 
-#### 1. Edge Function (`supabase/functions/translate-slide/index.ts`)
+#### 1. Edge function prompt modositas (`supabase/functions/translate-slide/index.ts`)
 
-Force `parsed.original` and `parsed.translated` to strings before returning:
+A system promptban expliciten megkoveteljuk, hogy az `original` es `translated` mezok **sima szoveg** legyenek, NE strukturalt JSON objektumok:
+
+```
+Respond with: {"original": "plain text with line breaks", "translated": "plain text with line breaks"}
+Do NOT nest objects inside original/translated - use plain text with newlines.
+```
+
+#### 2. `ensureString` okosabb formázása (`supabase/functions/translate-slide/index.ts`)
+
+Ha az AI megis objektumot ad vissza, az `ensureString` fuggveny felismeri a strukturat es olvasmanyos szovegge alakitja:
 
 ```typescript
 function ensureString(val: unknown): string {
   if (typeof val === 'string') return val;
   if (val == null) return '';
-  try { return JSON.stringify(val, null, 2); } 
+  // Ha strukturalt objektum (title, bullet_points, notes), formazzuk szepen
+  if (typeof val === 'object' && !Array.isArray(val)) {
+    const obj = val as Record<string, unknown>;
+    const parts: string[] = [];
+    if (obj.title) parts.push(String(obj.title));
+    if (Array.isArray(obj.bullet_points)) {
+      obj.bullet_points.forEach(bp => parts.push(`• ${bp}`));
+    }
+    if (obj.notes) parts.push(String(obj.notes));
+    if (parts.length > 0) return parts.join('\n');
+  }
+  try { return JSON.stringify(val, null, 2); }
   catch { return String(val); }
 }
-
-// In response:
-originalSlideText: ensureString(parsed.original),
-translatedSlideText: ensureString(parsed.translated),
 ```
 
-#### 2. Frontend safety (`src/pages/Index.tsx`)
+### Modositando fajlok
 
-Add a safety check when adding slide entries, so even if the edge function somehow returns an object, it won't crash React:
-
-```typescript
-const safeStr = (v: unknown): string => 
-  typeof v === 'string' ? v : JSON.stringify(v) ?? '';
-
-setSlideEntries(prev => [...prev, {
-  id: Date.now(),
-  original: safeStr(data.originalSlideText) || '(nem sikerult kiolvasni)',
-  translated: safeStr(data.translatedSlideText) || '(nem sikerult leforditani)',
-}]);
-```
-
-### Files to modify
-
-| File | Change |
+| Fajl | Valtozas |
 |------|--------|
-| `supabase/functions/translate-slide/index.ts` | Add `ensureString` helper, apply to response fields |
-| `src/pages/Index.tsx` | Add `safeStr` guard when creating slide entries |
+| `supabase/functions/translate-slide/index.ts` | Prompt frissites + ensureString okos formatazas |
 
+### Eredmeny
+
+A dia kartyan a szoveg igy jelenik meg:
+```
+ENFORCE TAC
+RESULT (2) - COMPARISON
+- Deep Learning Detector
+- Conventional Energy Detector
+8 Rohd 26 Cognitive EW
+```
+
+A nyers JSON helyett olvasmanyos, strukturalt szoveg.
