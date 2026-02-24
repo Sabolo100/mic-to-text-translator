@@ -1,5 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
+function ensureString(val: unknown): string {
+  if (typeof val === 'string') return val;
+  if (val == null) return '';
+  try { return JSON.stringify(val, null, 2); }
+  catch { return String(val); }
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
@@ -98,8 +105,8 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        originalSlideText: parsed.original || '',
-        translatedSlideText: parsed.translated || '',
+        originalSlideText: ensureString(parsed.original),
+        translatedSlideText: ensureString(parsed.translated),
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
