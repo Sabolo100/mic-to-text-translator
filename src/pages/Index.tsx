@@ -28,6 +28,7 @@ const Index = () => {
   const [translatedText, setTranslatedText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPolishing, setIsPolishing] = useState(false);
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
   const { toast } = useToast();
 
@@ -114,17 +115,38 @@ const Index = () => {
 
   const hasText = originalText.length > 0 || translatedText.length > 0;
 
-  const downloadTranscript = () => {
+  const downloadTranscript = async () => {
+    setIsPolishing(true);
     const inputName = LANGUAGES.find(l => l.code === inputLang)?.name ?? inputLang;
     const outputName = LANGUAGES.find(l => l.code === outputLang)?.name ?? outputLang;
     const timestamp = new Date().toLocaleString('hu-HU');
 
+    let finalOriginal = originalText;
+    let finalTranslated = translatedText;
+
+    try {
+      const { data, error } = await supabase.functions.invoke('polish-text', {
+        body: { originalText, translatedText, inputLang, outputLang },
+      });
+
+      if (error) throw error;
+
+      if (data?.polishedOriginal) finalOriginal = data.polishedOriginal;
+      if (data?.polishedTranslation) finalTranslated = data.polishedTranslation;
+    } catch (error) {
+      console.error('Polish error, using raw text:', error);
+      toast({
+        title: "Figyelmeztetés",
+        description: "A szöveg szépítése nem sikerült, a nyers szöveget töltjük le.",
+      });
+    }
+
     const content = [
       `Eredeti szöveg (${inputName}):`,
-      originalText || '(üres)',
+      finalOriginal || '(üres)',
       '',
       `Fordítás (${outputName}):`,
-      translatedText || '(üres)',
+      finalTranslated || '(üres)',
       '',
       '---',
       `Generálta: Valós Idejű Fordító`,
@@ -138,6 +160,7 @@ const Index = () => {
     a.download = `forditas_${Date.now()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
+    setIsPolishing(false);
   };
 
   return (
@@ -201,11 +224,11 @@ const Index = () => {
           variant="outline"
           size="sm"
           onClick={downloadTranscript}
-          disabled={!hasText}
+          disabled={!hasText || isPolishing}
           className="gap-2"
         >
           <Download size={16} />
-          Letöltés
+          {isPolishing ? 'Feldolgozás...' : 'Letöltés'}
         </Button>
       </div>
 
