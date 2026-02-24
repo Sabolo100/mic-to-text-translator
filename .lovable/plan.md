@@ -1,146 +1,79 @@
 
-## Terv: Prezentacios dia fotozo es fordito funkcio
 
-### Funkciok osszefoglalasa
+## Terv: Beepitett bug logger + fekete kepernyo javitas
 
-A felhasznalo a mobiltelefonjan hallgatja a prezentaciot (a rendszer kozben forditja a beszédet), es kozben le tudja fotozni / feltolteni a kivetitett dia kepet. A rendszer:
-1. Felismeri a kepen levo szoveget (OCR)
-2. Leforditja a cel nyelvre
-3. Jol strukturaltan megjeleníti egy kulon mezoben
-4. A letoltott txt fajlba is bekerulnek a dia-fordítasok kulon bekezdesekent
+### 1. Beepitett Debug Log Panel
 
-### Architektura
+Letrehozunk egy appba epitett log rendszert, ami a telefonon is lathato. Ez felulirja a `console.log`, `console.error`, `console.warn` metodusokat, es a logokat egy felcsukhato panelben jeleníti meg az app aljan.
 
-```text
-[Felhasznalo fotoz] 
-    -> base64 kep
-    -> supabase edge function: translate-slide
-    -> Lovable AI (gemini-2.5-flash multimodal: kep + szoveg)
-    -> visszaadja: { originalSlideText, translatedSlideText }
-    -> megjelenik a UI-ban + beepul a letoltesbe
-```
+**Uj fajl: `src/components/DebugPanel.tsx`**
+- Egy felcsukhato panel az app aljan (egy kis "Bug" gomb nyitja/zarva)
+- Megjeleniti az osszes elfogott log uzenetet idopecssettel
+- Szinekkel megkulonbozteti: info (feher), warn (sarga), error (piros)
+- "Torles" gomb a logok torlesesere
+- "Masolas" gomb ami az osszes logot a vagolapra masolja (igy laptoprol is lathatod)
+- Max 200 log tarolasa, FIFO
 
-A Gemini modellek tamogatjak a multimodalis bemenetet (kep + szoveg), igy egyetlen AI hivassal megoldhato az OCR + forditas + strukturalas.
+**Uj fajl: `src/utils/debugLogger.ts`**
+- Globalis log tarolo (tomb)
+- `initLogger()`: felulirja a `console.log/warn/error`-t ugy, hogy az eredeti is meghivodjon + a belso tombbe is keruljön
+- `getLogs()`, `clearLogs()`, `onLog(callback)` fuggvenyek
+- Hibakat is elfogja: `window.onerror` es `window.onunhandledrejection`
 
-### 1. Uj edge function: `supabase/functions/translate-slide/index.ts`
+### 2. Fekete kepernyo javitas
 
-- Bemenete: `image` (base64 string), `outputLang` (cel nyelv kodu)
-- A Lovable AI Gateway-t hasznalja `google/gemini-2.5-flash` modellel
-- A kep `data:image/...;base64,...` formatumban kerul at az AI-nak (multimodal input)
-- System prompt: "Elemezd a prezentacios dia kepet. Olvasd ki a szoveget, majd forditsd le a cel nyelvre. Strukturald a kimenetet: cim, felsorolaspontok, megjegyzesek. Add vissza ket szekcioban: ORIGINAL es TRANSLATED."
-- Valasz: `{ originalSlideText: string, translatedSlideText: string }`
+A fekete kepernyo valoszinuleg azert tortenik, mert:
+- A nagy base64 string a `FileReader.readAsDataURL`-bol tul sok memoriat hasznal mobilon
+- Vagy a React komponens tree ujrarendereleskor valami crash tortenik
 
-### 2. Frontend modositasok (`src/pages/Index.tsx`)
+**Javitasok:**
+- A `resizeImage`-ben a `FileReader` eredmenyet (ami a teljes eredeti kep base64-ben) expliciten felszabaditjuk
+- A `handleSlideCapture`-ben `try/catch` korul mindent wrappelunk es a debug loggerbe irjuk
+- Az `img` objektumot is explicit toroljuk (`img.src = ''`) a canvas muvelet utan
+- A `finally` blokkban mindig `setIsProcessingSlide(false)` - ez mar megvan, de az uj loggerrel latni fogjuk pontosan hol akad el
 
-**Uj state valtozok:**
-- `slideEntries: Array<{ id: number, original: string, translated: string }>` - osszes feltoltott dia
-- `isProcessingSlide: boolean` - dia feldolgozas folyamatban
-
-**Uj funkcio: `handleSlideCapture`**
-- Mobilon: megnyitja a kamera appot (capture="environment" attributum az input elemen)
-- Desktopon: fajl valaszto
-- A kivalasztott kepet base64-re konvertalja
-- Meghivja a `translate-slide` edge function-t
-- Az eredmenyt hozzaadja a `slideEntries` tombhoz
-
-**UI valtozasok:**
-- Uj "Dia fotozasa" gomb (Camera ikon) a Record gomb mellett/alatt
-- Uj szekció a forditasi panelek alatt: "Dia fordítások" - kartyakent megjelenitve, mindegyik tartalmazza az eredeti es forditott szoveget
-- A feldolgozas kozben loading indikator jelenik meg
-
-**Letoltes bovitese:**
-- A `downloadTranscript` fuggveny a dia fordítasokat is hozzaadja a txt fajlhoz kulon szekcioként:
-```text
-Eredeti szöveg (Magyar):
-[beszed szoveg]
-
-Fordítás (English):
-[forditas]
-
---- Prezentációs diák ---
-
-[Dia 1]
-Eredeti: [dia szoveg]
-Fordítás: [dia forditas]
-
-[Dia 2]
-...
-```
-
-### 3. Uj komponens: `src/components/SlideCapture.tsx`
-
-- Kamera/fajl input gomb (rejtett `<input type="file" accept="image/*" capture="environment">`)
-- Mobilon automatikusan a hatso kamerat nyitja meg
-- Megjeleniti a feltoltott diak listaját kartyakent
-- Minden kartya: kis elonezeti kep + eredeti szoveg + forditott szoveg
-- Torlesi lehetoseg kartyankent
-
-### 4. Uj komponens: `src/components/SlideTranslationCard.tsx`
-
-- Egyetlen dia megjelenítese: sorszam, eredeti szoveg, forditott szoveg
-- Kompakt, osszecsukhato (Collapsible) kartya formatum
-- Torles gomb
-
-### 5. config.toml frissites
-
-```toml
-[functions.translate-slide]
-verify_jwt = false
-```
-
-### 6. Modositando fajlok
+### 3. Modositando fajlok
 
 | Fajl | Valtozas |
 |------|----------|
-| `supabase/functions/translate-slide/index.ts` | UJ - kep felismeres + forditas edge function |
-| `src/components/SlideCapture.tsx` | UJ - kamera/feltoltes gomb komponens |
-| `src/components/SlideTranslationCard.tsx` | UJ - dia forditas kartya komponens |
-| `src/pages/Index.tsx` | slideEntries state, handleSlideCapture, UI bovites, letoltes bovites |
-| `supabase/config.toml` | translate-slide regisztracio |
+| `src/utils/debugLogger.ts` | UJ - globalis log elfogo rendszer |
+| `src/components/DebugPanel.tsx` | UJ - megjelenito panel |
+| `src/pages/Index.tsx` | DebugPanel beepitese + logger inicializalas |
+| `src/utils/imageUtils.ts` | Memoria felszabaditas javitas (img.src = '') |
 
 ### Technikai reszletek
 
-**Edge function - multimodalis AI hivas:**
+**debugLogger.ts vazlat:**
 ```typescript
-// A Gemini modell tamogatja a kep + szoveg bemenetet
-const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${Deno.env.get('LOVABLE_API_KEY')}`,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    model: 'google/gemini-2.5-flash',
-    messages: [
-      {
-        role: 'system',
-        content: `Egy prezentacios dia kepet kapsz. Olvasd ki a szoveget strukturaltan (cim, pontok), majd forditsd le erre a nyelvre: ${outputLang}. Valaszolj JSON formatumban: {"original": "...", "translated": "..."}`
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-          { type: 'text', text: 'Kérlek elemezd és fordítsd le ezt a diát.' }
-        ]
-      }
-    ],
-  }),
-});
+type LogEntry = { time: string; level: 'log'|'warn'|'error'; msg: string };
+let logs: LogEntry[] = [];
+let listeners: ((entry: LogEntry) => void)[] = [];
+
+export function initLogger() {
+  const origLog = console.log;
+  const origWarn = console.warn;
+  const origError = console.error;
+  
+  const addEntry = (level, ...args) => {
+    const entry = { time: new Date().toLocaleTimeString(), level, msg: args.map(String).join(' ') };
+    logs.push(entry);
+    if (logs.length > 200) logs.shift();
+    listeners.forEach(fn => fn(entry));
+  };
+  
+  console.log = (...args) => { origLog(...args); addEntry('log', ...args); };
+  // ... hasonloan warn es error
+  
+  window.onerror = (msg, src, line) => addEntry('error', `${msg} at ${src}:${line}`);
+  window.onunhandledrejection = (e) => addEntry('error', 'Unhandled:', e.reason);
+}
 ```
 
-**Mobil kamera input:**
-```html
-<input
-  type="file"
-  accept="image/*"
-  capture="environment"
-  onChange={handleFileSelect}
-  className="hidden"
-/>
-```
-Az `capture="environment"` attributum mobilon a hatso kamerat nyitja, igy a felhasznalo egyszeruen rafotozhat a kivetitett diara.
+**DebugPanel.tsx vazlat:**
+- Egy fix positioned "🐛" gomb a jobb also sarokban
+- Kattintasra kinyilik egy max 40vh magas scrollozhato lista a logokkal
+- Minden sor: idopecset + szinezett szoveg
+- "Masolas" gomb: `navigator.clipboard.writeText(...)` - igy a laptopon beilllesztheted
 
-**Kep merete optimalizalas:**
-- A feltoltott kepet canvas-al atmeretezzuk max 1920px szelessegre a feltoltes elott
-- Ez csokkenti a base64 meretet es gyorsitja az AI feldolgozast
-- A `src/utils/audioUtils.ts` fajlt kiegeszitjuk egy `resizeImage` utility-vel
+Ez lehetove teszi, hogy a kovetkezo tesztnel pontosan lassd, mi tortenik a telefonon a dia feldolgozas soran - es en is latom ha bemasolod.
+
