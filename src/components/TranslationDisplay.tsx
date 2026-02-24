@@ -4,9 +4,10 @@ interface TranslationDisplayProps {
   title: string;
   text: string;
   isLoading: boolean;
+  placeholder?: string;
 }
 
-export const TranslationDisplay = ({ title, text, isLoading }: TranslationDisplayProps) => {
+export const TranslationDisplay = ({ title, text, isLoading, placeholder = "A szöveg itt jelenik meg..." }: TranslationDisplayProps) => {
   const displayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,16 +28,16 @@ export const TranslationDisplay = ({ title, text, isLoading }: TranslationDispla
       
       <div 
         ref={displayRef}
-        className="relative bg-card/50 backdrop-blur-sm border border-border rounded-2xl p-6 min-h-[300px] max-h-[500px] overflow-y-auto shadow-2xl"
+        className="relative bg-card/50 backdrop-blur-sm border border-border rounded-2xl p-6 min-h-[250px] max-h-[500px] overflow-y-auto shadow-2xl"
       >
         {text ? (
           <p className="text-2xl md:text-3xl leading-relaxed text-foreground animate-in fade-in duration-300">
             {text}
           </p>
         ) : (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center min-h-[200px]">
             <p className="text-xl text-muted-foreground">
-              {isLoading ? "Fordítás folyamatban..." : "A fordítás itt fog megjelenni..."}
+              {isLoading ? "Feldolgozás..." : placeholder}
             </p>
           </div>
         )}

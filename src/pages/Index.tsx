@@ -3,8 +3,11 @@ import { LanguageSelector } from "@/components/LanguageSelector";
 import { TranslationDisplay } from "@/components/TranslationDisplay";
 import { RecordButton } from "@/components/RecordButton";
 import { AudioRecorder } from "@/utils/audioRecorder";
+import { blobToBase64 } from "@/utils/audioUtils";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Download, ArrowLeftRight } from "lucide-react";
 
 const LANGUAGES = [
   { code: "hu", name: "Magyar" },
@@ -30,44 +33,36 @@ const Index = () => {
 
   const handleAudioChunk = async (audioBlob: Blob) => {
     if (isProcessing) return;
-    
+    setIsProcessing(true);
+
     try {
-      setIsProcessing(true);
+      const base64Audio = await blobToBase64(audioBlob);
       console.log('Processing audio chunk, size:', audioBlob.size);
 
-      // Convert blob to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(audioBlob);
-      
-      reader.onloadend = async () => {
-        const base64Audio = (reader.result as string).split(',')[1];
-        
-        // Call edge function for transcription and translation
-        const { data, error } = await supabase.functions.invoke('translate-speech', {
-          body: {
-            audio: base64Audio,
-            inputLang,
-            outputLang,
-          }
-        });
+      const { data, error } = await supabase.functions.invoke('translate-speech', {
+        body: {
+          audio: base64Audio,
+          inputLang,
+          outputLang,
+        },
+      });
 
-        if (error) {
-          console.error('Translation error:', error);
-          throw error;
-        }
+      if (error) {
+        console.error('Translation error:', error);
+        throw error;
+      }
 
-        if (data?.transcription) {
-          setOriginalText(prev => 
-            prev ? `${prev} ${data.transcription}` : data.transcription
-          );
-        }
+      if (data?.transcription) {
+        setOriginalText(prev =>
+          prev ? `${prev} ${data.transcription}` : data.transcription
+        );
+      }
 
-        if (data?.translation) {
-          setTranslatedText(prev => 
-            prev ? `${prev} ${data.translation}` : data.translation
-          );
-        }
-      };
+      if (data?.translation) {
+        setTranslatedText(prev =>
+          prev ? `${prev} ${data.translation}` : data.translation
+        );
+      }
     } catch (error) {
       console.error('Error processing audio:', error);
       toast({
@@ -82,7 +77,6 @@ const Index = () => {
 
   const toggleRecording = async () => {
     if (isRecording) {
-      // Stop recording
       audioRecorderRef.current?.stop();
       setIsRecording(false);
       toast({
@@ -90,7 +84,6 @@ const Index = () => {
         description: "A hangfelvétel befejeződött.",
       });
     } else {
-      // Start recording
       try {
         setOriginalText("");
         setTranslatedText("");
@@ -114,6 +107,39 @@ const Index = () => {
     }
   };
 
+  const swapLanguages = () => {
+    setInputLang(outputLang);
+    setOutputLang(inputLang);
+  };
+
+  const hasText = originalText.length > 0 || translatedText.length > 0;
+
+  const downloadTranscript = () => {
+    const inputName = LANGUAGES.find(l => l.code === inputLang)?.name ?? inputLang;
+    const outputName = LANGUAGES.find(l => l.code === outputLang)?.name ?? outputLang;
+    const timestamp = new Date().toLocaleString('hu-HU');
+
+    const content = [
+      `Eredeti szöveg (${inputName}):`,
+      originalText || '(üres)',
+      '',
+      `Fordítás (${outputName}):`,
+      translatedText || '(üres)',
+      '',
+      '---',
+      `Generálta: Valós Idejű Fordító`,
+      `Dátum: ${timestamp}`,
+    ].join('\n');
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `forditas_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -130,14 +156,22 @@ const Index = () => {
 
       {/* Language Selection */}
       <div className="container mx-auto px-4 py-6">
-        <div className="flex flex-col md:flex-row gap-4 md:gap-8 justify-center items-center">
+        <div className="flex flex-col md:flex-row gap-4 md:gap-4 justify-center items-center">
           <LanguageSelector
             label="Bemeneti nyelv"
             value={inputLang}
             onChange={setInputLang}
             languages={LANGUAGES}
           />
-          <div className="hidden md:block text-4xl text-muted-foreground">→</div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={swapLanguages}
+            className="rounded-full text-muted-foreground hover:text-foreground"
+            aria-label="Nyelvek cseréje"
+          >
+            <ArrowLeftRight size={20} />
+          </Button>
           <LanguageSelector
             label="Kimeneti nyelv"
             value={outputLang}
@@ -161,28 +195,42 @@ const Index = () => {
         </div>
       </div>
 
+      {/* Download button */}
+      <div className="container mx-auto px-4 flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={downloadTranscript}
+          disabled={!hasText}
+          className="gap-2"
+        >
+          <Download size={16} />
+          Letöltés
+        </Button>
+      </div>
+
       {/* Translation Display - Two columns */}
-      <div className="flex-1 container mx-auto px-4 py-8">
+      <div className="flex-1 container mx-auto px-4 py-4">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <TranslationDisplay 
+          <TranslationDisplay
             title="Eredeti szöveg"
-            text={originalText} 
+            text={originalText}
             isLoading={isProcessing}
+            placeholder="Beszéljen a mikrofonba..."
           />
-          <TranslationDisplay 
+          <TranslationDisplay
             title="Fordítás"
-            text={translatedText} 
+            text={translatedText}
             isLoading={isProcessing}
+            placeholder="A fordítás itt jelenik meg..."
           />
         </div>
       </div>
 
       {/* Footer */}
-      <footer className="border-t border-border py-6">
-        <p className="text-center text-sm text-muted-foreground">
-          {isRecording 
-            ? "🎤 Felvétel folyamatban... Kattintson a gombra a leállításhoz." 
-            : "Kattintson a mikrofon gombra a kezdéshez"}
+      <footer className="border-t border-border py-4">
+        <p className="text-center text-xs text-muted-foreground">
+          {isRecording && "🎤 Felvétel folyamatban..."}
         </p>
       </footer>
     </div>
