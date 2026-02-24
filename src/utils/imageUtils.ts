@@ -37,9 +37,10 @@ export function resizeImage(file: File, maxWidth = 1280): Promise<string> {
           ctx.drawImage(img, 0, 0, width, height);
           const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
           
-          // Clean up
+          // Aggressive cleanup for mobile memory
           canvas.width = 0;
           canvas.height = 0;
+          img.src = '';
           
           console.log(`Base64 length: ${base64.length}`);
           resolve(base64);
