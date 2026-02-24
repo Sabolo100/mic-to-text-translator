@@ -95,27 +95,38 @@ const Index = () => {
   };
 
   const handleSlideCapture = async (file: File) => {
+    console.log('handleSlideCapture called, file size:', file.size, 'type:', file.type);
     setIsProcessingSlide(true);
     try {
+      console.log('Starting image resize...');
       const base64Image = await resizeImage(file);
+      console.log('Image resized, base64 length:', base64Image.length);
+      
+      console.log('Invoking translate-slide...');
       const { data, error } = await supabase.functions.invoke('translate-slide', {
         body: { image: base64Image, outputLang },
       });
 
+      console.log('translate-slide response:', { data, error });
+
       if (error) throw error;
 
-      if (data?.originalSlideText && data?.translatedSlideText) {
+      if (data?.originalSlideText || data?.translatedSlideText) {
         setSlideEntries(prev => [...prev, {
           id: Date.now(),
-          original: data.originalSlideText,
-          translated: data.translatedSlideText,
+          original: data.originalSlideText || '(nem sikerült kiolvasni)',
+          translated: data.translatedSlideText || '(nem sikerült lefordítani)',
         }]);
         toast({ title: "Dia feldolgozva", description: "A dia szövege sikeresen lefordítva." });
+      } else {
+        console.warn('No slide text in response:', data);
+        toast({ title: "Figyelmeztetés", description: "Nem sikerült szöveget kiolvasni a diáról.", variant: "destructive" });
       }
     } catch (error) {
       console.error('Slide processing error:', error);
       toast({ title: "Hiba", description: "Nem sikerült feldolgozni a diát. Próbálja újra.", variant: "destructive" });
     } finally {
+      console.log('Slide processing finished');
       setIsProcessingSlide(false);
     }
   };
