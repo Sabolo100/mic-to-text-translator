@@ -38,10 +38,11 @@ const Index = () => {
   const [slideEntries, setSlideEntries] = useState<SlideEntry[]>([]);
   const [isProcessingSlide, setIsProcessingSlide] = useState(false);
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
+  const skipAudioRef = useRef(false);
   const { toast } = useToast();
 
   const handleAudioChunk = async (audioBlob: Blob) => {
-    if (isProcessing) return;
+    if (isProcessing || skipAudioRef.current) return;
     setIsProcessing(true);
 
     try {
@@ -100,6 +101,8 @@ const Index = () => {
 
   const handleSlideCapture = async (file: File) => {
     console.log('handleSlideCapture called, file size:', file.size, 'type:', file.type);
+    skipAudioRef.current = true;
+    console.log('Audio processing paused for slide capture');
     setIsProcessingSlide(true);
     try {
       console.log('Starting image resize...');
@@ -111,16 +114,18 @@ const Index = () => {
         body: { image: base64Image, outputLang },
       });
 
-      console.log('translate-slide response:', { data, error });
+      console.log('translate-slide response received');
 
       if (error) throw error;
 
+      console.log('Processing slide response data...');
       if (data?.originalSlideText || data?.translatedSlideText) {
         setSlideEntries(prev => [...prev, {
           id: Date.now(),
           original: data.originalSlideText || '(nem sikerült kiolvasni)',
           translated: data.translatedSlideText || '(nem sikerült lefordítani)',
         }]);
+        console.log('Slide entry added to state');
         toast({ title: "Dia feldolgozva", description: "A dia szövege sikeresen lefordítva." });
       } else {
         console.warn('No slide text in response:', data);
@@ -130,8 +135,9 @@ const Index = () => {
       console.error('Slide processing error:', error);
       toast({ title: "Hiba", description: "Nem sikerült feldolgozni a diát. Próbálja újra.", variant: "destructive" });
     } finally {
-      console.log('Slide processing finished');
+      console.log('Slide processing finished, resuming audio in 200ms');
       setIsProcessingSlide(false);
+      setTimeout(() => { skipAudioRef.current = false; }, 200);
     }
   };
 
