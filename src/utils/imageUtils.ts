@@ -1,26 +1,57 @@
-export function resizeImage(file: File, maxWidth = 1920): Promise<string> {
+export function resizeImage(file: File, maxWidth = 1280): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
+      const result = e.target?.result as string;
+      if (!result) {
+        reject(new Error('Failed to read file'));
+        return;
+      }
       const img = new Image();
       img.onload = () => {
-        let { width, height } = img;
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
+        try {
+          let { width, height } = img;
+          console.log(`Original image size: ${width}x${height}`);
+          
+          // Scale down if needed
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          // Also limit height
+          const maxHeight = 960;
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+          
+          console.log(`Resized to: ${width}x${height}`);
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+          
+          // Clean up
+          canvas.width = 0;
+          canvas.height = 0;
+          
+          console.log(`Base64 length: ${base64.length}`);
+          resolve(base64);
+        } catch (err) {
+          console.error('Canvas resize error:', err);
+          reject(err);
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0, width, height);
-        const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
-        resolve(base64);
       };
-      img.onerror = reject;
-      img.src = e.target?.result as string;
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = result;
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
 }
