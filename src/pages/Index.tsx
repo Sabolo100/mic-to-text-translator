@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { TranslationDisplay } from "@/components/TranslationDisplay";
 import { RecordButton } from "@/components/RecordButton";
@@ -10,6 +10,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Download, ArrowLeftRight } from "lucide-react";
+import { initLogger } from "@/utils/debugLogger";
+import { DebugPanel } from "@/components/DebugPanel";
 
 const LANGUAGES = [
   { code: "hu", name: "Magyar" },
@@ -24,6 +26,8 @@ const LANGUAGES = [
 ];
 
 const Index = () => {
+  useEffect(() => { initLogger(); }, []);
+
   const [inputLang, setInputLang] = useState("hu");
   const [outputLang, setOutputLang] = useState("en");
   const [originalText, setOriginalText] = useState("");
@@ -262,6 +266,7 @@ const Index = () => {
           {isRecording && "🎤 Felvétel folyamatban..."}
         </p>
       </footer>
+      <DebugPanel />
     </div>
   );
 };
