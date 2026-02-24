@@ -119,11 +119,14 @@ const Index = () => {
       if (error) throw error;
 
       console.log('Processing slide response data...');
+      const safeStr = (v: unknown): string =>
+        typeof v === 'string' ? v : JSON.stringify(v) ?? '';
+
       if (data?.originalSlideText || data?.translatedSlideText) {
         setSlideEntries(prev => [...prev, {
           id: Date.now(),
-          original: data.originalSlideText || '(nem sikerült kiolvasni)',
-          translated: data.translatedSlideText || '(nem sikerült lefordítani)',
+          original: safeStr(data.originalSlideText) || '(nem sikerült kiolvasni)',
+          translated: safeStr(data.translatedSlideText) || '(nem sikerült lefordítani)',
         }]);
         console.log('Slide entry added to state');
         toast({ title: "Dia feldolgozva", description: "A dia szövege sikeresen lefordítva." });
