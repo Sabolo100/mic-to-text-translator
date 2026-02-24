@@ -1,79 +1,94 @@
 
 
-## Terv: Beepitett bug logger + fekete kepernyo javitas
+## Terv: Fekete kepernyo vegleges javitasa Android mobilon
 
-### 1. Beepitett Debug Log Panel
+### Problema gyokere
 
-Letrehozunk egy appba epitett log rendszert, ami a telefonon is lathato. Ez felulirja a `console.log`, `console.error`, `console.warn` metodusokat, es a logokat egy felcsukhato panelben jeleníti meg az app aljan.
+A debug logok alapjan a crash a `translate-slide` hivas UTAN tortenik - tehat a kep feldolgozas sikerult, de amikor a valasz visszaerkezik es a React ujrarajzolja a UI-t, a bongeszo tab elszall. Az ok:
 
-**Uj fajl: `src/components/DebugPanel.tsx`**
-- Egy felcsukhato panel az app aljan (egy kis "Bug" gomb nyitja/zarva)
-- Megjeleniti az osszes elfogott log uzenetet idopecssettel
-- Szinekkel megkulonbozteti: info (feher), warn (sarga), error (piros)
-- "Torles" gomb a logok torlesesere
-- "Masolas" gomb ami az osszes logot a vagolapra masolja (igy laptoprol is lathatod)
-- Max 200 log tarolasa, FIFO
+1. **Egyideju memoria terheles**: A hangfelvetel folyamatosan fut (MediaRecorder + AudioContext + requestAnimationFrame ciklus), mikozben a dia valasz megjon es allapotfrissites tortenik
+2. **FileReader megduplazza a memoriat**: A `readAsDataURL` a teljes eredeti kepet base64-be konvertalja MIELOTT a canvas atmeretezne - egy 2MB-os JPEG eseten ez ~5MB RAM-ot fogyaszt feleslegesen
+3. **Parhuzamos state update-ek**: Audio chunk + slide response egyidoben triggerelnek React rendereket, ami mobilon tulorral
 
-**Uj fajl: `src/utils/debugLogger.ts`**
-- Globalis log tarolo (tomb)
-- `initLogger()`: felulirja a `console.log/warn/error`-t ugy, hogy az eredeti is meghivodjon + a belso tombbe is keruljön
-- `getLogs()`, `clearLogs()`, `onLog(callback)` fuggvenyek
-- Hibakat is elfogja: `window.onerror` es `window.onunhandledrejection`
+### Javitasok
 
-### 2. Fekete kepernyo javitas
+#### 1. `src/utils/imageUtils.ts` - URL.createObjectURL hasznalata FileReader helyett
 
-A fekete kepernyo valoszinuleg azert tortenik, mert:
-- A nagy base64 string a `FileReader.readAsDataURL`-bol tul sok memoriat hasznal mobilon
-- Vagy a React komponens tree ujrarendereleskor valami crash tortenik
+A `FileReader.readAsDataURL` helyett `URL.createObjectURL`-t hasznalunk, ami NEM masolja be a memoriba a teljes eredeti kepet - csak egy rovid URL-t ad, amirol a bongeszo kozvetlenul olvas.
 
-**Javitasok:**
-- A `resizeImage`-ben a `FileReader` eredmenyet (ami a teljes eredeti kep base64-ben) expliciten felszabaditjuk
-- A `handleSlideCapture`-ben `try/catch` korul mindent wrappelunk es a debug loggerbe irjuk
-- Az `img` objektumot is explicit toroljuk (`img.src = ''`) a canvas muvelet utan
-- A `finally` blokkban mindig `setIsProcessingSlide(false)` - ez mar megvan, de az uj loggerrel latni fogjuk pontosan hol akad el
+```text
+Regi mod:
+  File (2MB) -> FileReader -> base64 string (5MB RAM) -> Image -> Canvas -> kis base64
 
-### 3. Modositando fajlok
+Uj mod:
+  File (2MB) -> createObjectURL (0 extra RAM) -> Image -> Canvas -> kis base64
+```
+
+#### 2. `src/pages/Index.tsx` - Audio szuneteltetese dia feldolgozas kozben
+
+A `handleSlideCapture` fuggvenyben:
+- A dia feldolgozas elott felfuggesztjuk az audio chunk feldolgozast (egy `skipAudioRef` flag-gel)
+- A dia valasz megjon -> allapotfrissites -> `setTimeout`-tal varunk 100ms-t -> ujra engedelyezzuk az audio feldolgozast
+- Igy soha nem tortenik egyszerre ket nehez state update
+
+#### 3. `src/components/ErrorBoundary.tsx` - React ErrorBoundary
+
+Egy ErrorBoundary komponens, ami elkapja a renderelesi hibakat es egy "Ujratoltesi" gombot mutat a fekete kepernyo helyett. Igy legrosszabb esetben sem fagy le teljesen az app.
+
+#### 4. Debug logok bovitese
+
+A `handleSlideCapture`-ben uj log sorok a valasz feldolgozas utanra is, hogy lassuk pontosan melyik lepesnel hal meg.
+
+### Modositando fajlok
 
 | Fajl | Valtozas |
 |------|----------|
-| `src/utils/debugLogger.ts` | UJ - globalis log elfogo rendszer |
-| `src/components/DebugPanel.tsx` | UJ - megjelenito panel |
-| `src/pages/Index.tsx` | DebugPanel beepitese + logger inicializalas |
-| `src/utils/imageUtils.ts` | Memoria felszabaditas javitas (img.src = '') |
+| `src/utils/imageUtils.ts` | FileReader helyett createObjectURL + revoke |
+| `src/pages/Index.tsx` | Audio szuneteltetese dia kozben + bovebb logok |
+| `src/components/ErrorBoundary.tsx` | UJ - crash vedelem |
+| `src/App.tsx` | ErrorBoundary beepitese az app kore |
 
 ### Technikai reszletek
 
-**debugLogger.ts vazlat:**
+**imageUtils.ts uj megkozelites:**
 ```typescript
-type LogEntry = { time: string; level: 'log'|'warn'|'error'; msg: string };
-let logs: LogEntry[] = [];
-let listeners: ((entry: LogEntry) => void)[] = [];
-
-export function initLogger() {
-  const origLog = console.log;
-  const origWarn = console.warn;
-  const origError = console.error;
-  
-  const addEntry = (level, ...args) => {
-    const entry = { time: new Date().toLocaleTimeString(), level, msg: args.map(String).join(' ') };
-    logs.push(entry);
-    if (logs.length > 200) logs.shift();
-    listeners.forEach(fn => fn(entry));
-  };
-  
-  console.log = (...args) => { origLog(...args); addEntry('log', ...args); };
-  // ... hasonloan warn es error
-  
-  window.onerror = (msg, src, line) => addEntry('error', `${msg} at ${src}:${line}`);
-  window.onunhandledrejection = (e) => addEntry('error', 'Unhandled:', e.reason);
+export function resizeImage(file: File, maxWidth = 1280): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url); // azonnal felszabaditjuk
+      // ... canvas resize ugyanugy
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(...); };
+    img.src = url;
+  });
 }
 ```
 
-**DebugPanel.tsx vazlat:**
-- Egy fix positioned "🐛" gomb a jobb also sarokban
-- Kattintasra kinyilik egy max 40vh magas scrollozhato lista a logokkal
-- Minden sor: idopecset + szinezett szoveg
-- "Masolas" gomb: `navigator.clipboard.writeText(...)` - igy a laptopon beilllesztheted
+**Index.tsx audio szuneteltetese:**
+```typescript
+const skipAudioRef = useRef(false);
 
-Ez lehetove teszi, hogy a kovetkezo tesztnel pontosan lassd, mi tortenik a telefonon a dia feldolgozas soran - es en is latom ha bemasolod.
+const handleAudioChunk = async (audioBlob: Blob) => {
+  if (isProcessing || skipAudioRef.current) return; // skip dia kozben
+  // ...
+};
+
+const handleSlideCapture = async (file: File) => {
+  skipAudioRef.current = true; // audio szunet
+  try {
+    // ... feldolgozas
+  } finally {
+    setTimeout(() => { skipAudioRef.current = false; }, 200);
+  }
+};
+```
+
+**ErrorBoundary.tsx:**
+```typescript
+// React class component ami elkapja a renderelesi hibakat
+// "Valami hiba tortent" uzenet + "Ujratoltes" gomb
+// A fekete kepernyo helyett legalabb lathato hibauzenet
+```
 
