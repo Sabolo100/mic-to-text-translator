@@ -3,6 +3,22 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 function ensureString(val: unknown): string {
   if (typeof val === 'string') return val;
   if (val == null) return '';
+  if (typeof val === 'object' && !Array.isArray(val)) {
+    const obj = val as Record<string, unknown>;
+    const parts: string[] = [];
+    if (obj.title) parts.push(String(obj.title));
+    if (Array.isArray(obj.bullet_points)) {
+      obj.bullet_points.forEach((bp: unknown) => parts.push(`• ${bp}`));
+    }
+    if (Array.isArray(obj.bullets)) {
+      obj.bullets.forEach((bp: unknown) => parts.push(`• ${bp}`));
+    }
+    if (obj.notes) parts.push(`\n${String(obj.notes)}`);
+    if (parts.length > 0) return parts.join('\n');
+    // Generic object: join all values
+    const vals = Object.values(obj).map(v => typeof v === 'string' ? v : Array.isArray(v) ? v.map(i => `• ${i}`).join('\n') : String(v));
+    if (vals.length > 0) return vals.join('\n');
+  }
   try { return JSON.stringify(val, null, 2); }
   catch { return String(val); }
 }
@@ -45,7 +61,7 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are analyzing a presentation slide image. Extract all text from the slide in a structured format (title, bullet points, notes). Then translate it to this language: ${outputLang}. Respond ONLY with valid JSON in this exact format: {"original": "structured original text from slide", "translated": "structured translated text"}. Keep the structure (titles, bullet points) in both versions.`
+            content: `You are analyzing a presentation slide image. Extract all visible text from the slide, then translate it to: ${outputLang}. Respond ONLY with valid JSON: {"original": "plain text here", "translated": "plain text here"}. CRITICAL: The "original" and "translated" values MUST be plain strings with newlines (\\n) for structure. Use bullet points (• ) for list items. Do NOT use nested objects or arrays inside these fields.`
           },
           {
             role: 'user',
