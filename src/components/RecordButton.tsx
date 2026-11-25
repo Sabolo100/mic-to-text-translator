@@ -10,6 +10,8 @@ interface RecordButtonProps {
 export const RecordButton = ({ isRecording, onClick, disabled }: RecordButtonProps) => {
   return (
     <Button
+      aria-label={isRecording ? "Felvétel leállítása" : "Felvétel indítása"}
+      aria-pressed={isRecording}
       onClick={onClick}
       disabled={disabled}
       size="lg"
@@ -22,7 +24,7 @@ export const RecordButton = ({ isRecording, onClick, disabled }: RecordButtonPro
       `}
     >
       {isRecording && (
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-foreground/20 to-transparent animate-shimmer" />
       )}
       {isRecording ? (
         <MicOff className="w-8 h-8" />

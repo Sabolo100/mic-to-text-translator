@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import React from "react";
 
 interface Props {
@@ -31,12 +32,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
           <p className="text-muted-foreground mb-6 text-center max-w-md">
             Az alkalmazás váratlan hibába ütközött. Kérjük, töltse újra az oldalt.
           </p>
-          <button
+          <Button
             onClick={() => window.location.reload()}
             className="px-6 py-3 rounded-lg bg-primary text-primary-foreground font-medium"
           >
             Újratöltés
-          </button>
+          </Button>
           {this.state.error && (
             <pre className="mt-4 text-xs text-muted-foreground max-w-md overflow-auto">
               {this.state.error.message}

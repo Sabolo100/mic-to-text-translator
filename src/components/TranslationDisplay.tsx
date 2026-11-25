@@ -31,7 +31,7 @@ export const TranslationDisplay = ({ title, text, isLoading, placeholder = "A sz
         className="relative bg-card/50 backdrop-blur-sm border border-border rounded-2xl p-6 min-h-[250px] max-h-[500px] overflow-y-auto shadow-2xl"
       >
         {text ? (
-          <p className="text-2xl md:text-3xl leading-relaxed text-foreground animate-in fade-in duration-300">
+          <p className="text-2xl md:text-3xl leading-relaxed break-words whitespace-pre-wrap text-foreground animate-in fade-in duration-300">
             {text}
           </p>
         ) : (

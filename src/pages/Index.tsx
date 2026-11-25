@@ -10,8 +10,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Download, ArrowLeftRight } from "lucide-react";
-import { initLogger } from "@/utils/debugLogger";
-import { DebugPanel } from "@/components/DebugPanel";
+import { AudioQueue } from "@/utils/audioQueue";
+import { readableText } from "../../supabase/functions/_shared/text";
 
 const LANGUAGES = [
   { code: "hu", name: "Magyar" },
@@ -26,7 +26,6 @@ const LANGUAGES = [
 ];
 
 const Index = () => {
-  useEffect(() => { initLogger(); }, []);
 
   const [inputLang, setInputLang] = useState("hu");
   const [outputLang, setOutputLang] = useState("en");
@@ -34,62 +33,99 @@ const Index = () => {
   const [translatedText, setTranslatedText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const [isPolishing, setIsPolishing] = useState(false);
   const [slideEntries, setSlideEntries] = useState<SlideEntry[]>([]);
   const [isProcessingSlide, setIsProcessingSlide] = useState(false);
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
   const skipAudioRef = useRef(false);
   const { toast } = useToast();
+  type AudioJob = { blob: Blob; inputLang: string; outputLang: string };
+  const processRef = useRef<(job: AudioJob) => Promise<void>>(async () => undefined);
+  const [audioQueue] = useState(() => new AudioQueue<AudioJob>(job => processRef.current(job), setIsProcessing));
+  const recordingLanguages = useRef({ inputLang, outputLang });
+  const startingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const requestController = useRef(new AbortController());
 
-  const handleAudioChunk = async (audioBlob: Blob) => {
-    if (isProcessing || skipAudioRef.current) return;
-    setIsProcessing(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+    audioQueue.clear();
+    void audioRecorderRef.current?.stop(false);
+    requestController.current.abort();
+  }, [audioQueue]);
 
+  const stopOnError = (description: string) => {
+    audioQueue.clear();
+    void audioRecorderRef.current?.stop(false);
+    setIsRecording(false);
+    toast({ title: "A feldolgozás leállt", description, variant: "destructive" });
+  };
+
+  const functionError = async (error: unknown): Promise<string> => {
+    if (error && typeof error === 'object' && 'context' in error && error.context instanceof Response) {
+      try { return readableText((await error.context.clone().json()).error) || 'A szolgáltatás jelenleg nem elérhető.'; } catch { /* use fallback */ }
+    }
+    return 'A feldolgozás nem sikerült. Ellenőrizze az internetkapcsolatot, majd próbálja újra.';
+  };
+
+  processRef.current = async ({ blob, inputLang: source, outputLang: target }: AudioJob) => {
+    if (!mountedRef.current) return;
     try {
-      const base64Audio = await blobToBase64(audioBlob);
-      console.log('Processing audio chunk, size:', audioBlob.size);
-
+      const audio = await blobToBase64(blob);
       const { data, error } = await supabase.functions.invoke('translate-speech', {
-        body: { audio: base64Audio, inputLang, outputLang },
+        body: { audio, inputLang: source, outputLang: target, mimeType: blob.type },
+        signal: requestController.current.signal,
       });
-
-      if (error) {
-        console.error('Translation error:', error);
-        throw error;
-      }
-
-      if (data?.transcription) {
-        setOriginalText(prev => prev ? `${prev} ${data.transcription}` : data.transcription);
-      }
-      if (data?.translation) {
-        setTranslatedText(prev => prev ? `${prev} ${data.translation}` : data.translation);
-      }
+      if (!mountedRef.current) return;
+      if (error) throw error;
+      const original = readableText(data?.transcription);
+      const translated = readableText(data?.translation);
+      if (original) setOriginalText(prev => prev ? `${prev} ${original}` : original);
+      if (translated) setTranslatedText(prev => prev ? `${prev} ${translated}` : translated);
+      if (data?.translationError || data?.error) stopOnError(readableText(data.translationError || data.error));
     } catch (error) {
       console.error('Error processing audio:', error);
-      toast({ title: "Hiba", description: "Hiba történt a fordítás során. Kérjük, próbálja újra.", variant: "destructive" });
-    } finally {
-      setIsProcessing(false);
+      if (mountedRef.current) stopOnError(await functionError(error));
+    }
+  };
+
+  const handleAudioChunk = (blob: Blob) => {
+    if (!mountedRef.current) return;
+    if (!audioQueue.enqueue({ blob, ...recordingLanguages.current })) {
+      void audioRecorderRef.current?.stop(false);
+      setIsRecording(false);
+      toast({ title: "A felvétel szünetel", description: "A feldolgozás nem tart lépést a beszéddel. Várja meg a korábbi szöveg feldolgozását.", variant: "destructive" });
     }
   };
 
   const toggleRecording = async () => {
+    if (startingRef.current || skipAudioRef.current) return;
     if (isRecording) {
-      audioRecorderRef.current?.stop();
+      await audioRecorderRef.current?.stop();
       setIsRecording(false);
       toast({ title: "Rögzítés leállítva", description: "A hangfelvétel befejeződött." });
     } else {
+      startingRef.current = true;
+      setIsStarting(true);
       try {
-        setOriginalText("");
-        setTranslatedText("");
+        await audioQueue.idle();
+        recordingLanguages.current = { inputLang, outputLang };
         if (!audioRecorderRef.current) {
-          audioRecorderRef.current = new AudioRecorder();
+          audioRecorderRef.current = new AudioRecorder(() => stopOnError('A hangrögzítés megszakadt. Indítsa újra a felvételt.'));
         }
         await audioRecorderRef.current.start(handleAudioChunk);
+        if (!mountedRef.current) return;
+        setOriginalText("");
+        setTranslatedText("");
         setIsRecording(true);
         toast({ title: "Rögzítés elindult", description: "Kezdje el beszélni a mikrofonba." });
       } catch (error) {
         console.error('Error starting recording:', error);
-        toast({ title: "Hiba", description: "Nem sikerült elindítani a mikrofonot. Ellenőrizze az engedélyeket.", variant: "destructive" });
+        toast({ title: "Hiba", description: "Nem sikerült elindítani a mikrofont. Ellenőrizze az engedélyeket.", variant: "destructive" });
+      } finally {
+        startingRef.current = false;
+        if (mountedRef.current) setIsStarting(false);
       }
     }
   };
@@ -100,11 +136,18 @@ const Index = () => {
   };
 
   const handleSlideCapture = async (file: File) => {
+    if (skipAudioRef.current || isPolishing) return;
+    if (!file.type.startsWith('image/')) {
+      toast({ title: "Hiba", description: "Kérjük, válasszon képfájlt.", variant: "destructive" });
+      return;
+    }
     console.log('handleSlideCapture called, file size:', file.size, 'type:', file.type);
     skipAudioRef.current = true;
     console.log('Audio processing paused for slide capture');
     setIsProcessingSlide(true);
     try {
+      await audioRecorderRef.current?.pause();
+      await audioQueue.idle();
       console.log('Starting image resize...');
       const base64Image = await resizeImage(file);
       console.log('Image resized, base64 length:', base64Image.length);
@@ -112,15 +155,17 @@ const Index = () => {
       console.log('Invoking translate-slide...');
       const { data, error } = await supabase.functions.invoke('translate-slide', {
         body: { image: base64Image, outputLang },
+        signal: requestController.current.signal,
       });
 
       console.log('translate-slide response received');
 
       if (error) throw error;
+      if (data?.error) throw new Error(readableText(data.error));
+      if (!mountedRef.current) return;
 
       console.log('Processing slide response data...');
-      const safeStr = (v: unknown): string =>
-        typeof v === 'string' ? v : JSON.stringify(v) ?? '';
+      const safeStr = readableText;
 
       if (data?.originalSlideText || data?.translatedSlideText) {
         setSlideEntries(prev => [...prev, {
@@ -136,11 +181,19 @@ const Index = () => {
       }
     } catch (error) {
       console.error('Slide processing error:', error);
-      toast({ title: "Hiba", description: "Nem sikerült feldolgozni a diát. Próbálja újra.", variant: "destructive" });
+      const description = await functionError(error);
+      if (error && typeof error === 'object' && 'context' in error && error.context instanceof Response && [402, 403, 429].includes(error.context.status)) {
+        stopOnError(description);
+      } else {
+        toast({ title: "Hiba", description, variant: "destructive" });
+      }
     } finally {
-      console.log('Slide processing finished, resuming audio in 200ms');
-      setIsProcessingSlide(false);
-      setTimeout(() => { skipAudioRef.current = false; }, 200);
+      if (mountedRef.current) {
+        try { await audioRecorderRef.current?.resume(); }
+        catch { stopOnError('A mikrofonkapcsolat megszakadt. Indítsa újra a felvételt.'); }
+        setIsProcessingSlide(false);
+      }
+      skipAudioRef.current = false;
     }
   };
 
@@ -151,6 +204,7 @@ const Index = () => {
   const hasText = originalText.length > 0 || translatedText.length > 0 || slideEntries.length > 0;
 
   const downloadTranscript = async () => {
+    if (isPolishing || isProcessing || isProcessingSlide || isRecording) return;
     setIsPolishing(true);
     const inputName = LANGUAGES.find(l => l.code === inputLang)?.name ?? inputLang;
     const outputName = LANGUAGES.find(l => l.code === outputLang)?.name ?? outputLang;
@@ -160,17 +214,22 @@ const Index = () => {
     let finalTranslated = translatedText;
 
     try {
+      if (originalText || translatedText) {
       const { data, error } = await supabase.functions.invoke('polish-text', {
         body: { originalText, translatedText, inputLang, outputLang },
+        signal: requestController.current.signal,
       });
       if (error) throw error;
-      if (data?.polishedOriginal) finalOriginal = data.polishedOriginal;
-      if (data?.polishedTranslation) finalTranslated = data.polishedTranslation;
+      if (data?.fallback) throw new Error(readableText(data.warning));
+      if (data?.polishedOriginal) finalOriginal = readableText(data.polishedOriginal);
+      if (data?.polishedTranslation) finalTranslated = readableText(data.polishedTranslation);
+      }
     } catch (error) {
       console.error('Polish error, using raw text:', error);
       toast({ title: "Figyelmeztetés", description: "A szöveg szépítése nem sikerült, a nyers szöveget töltjük le." });
     }
 
+    try {
     const parts = [
       `Eredeti szöveg (${inputName}):`,
       finalOriginal || '(üres)',
@@ -197,9 +256,14 @@ const Index = () => {
     const a = document.createElement('a');
     a.href = url;
     a.download = `forditas_${Date.now()}.txt`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
-    setIsPolishing(false);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast({ title: "Hiba", description: "Nem sikerült letölteni a szöveget.", variant: "destructive" });
+    } finally { setIsPolishing(false); }
   };
 
   return (
@@ -219,11 +283,11 @@ const Index = () => {
       {/* Language Selection */}
       <div className="container mx-auto px-4 py-6">
         <div className="flex flex-col md:flex-row gap-4 md:gap-4 justify-center items-center">
-          <LanguageSelector label="Bemeneti nyelv" value={inputLang} onChange={setInputLang} languages={LANGUAGES} />
-          <Button variant="ghost" size="icon" onClick={swapLanguages} className="rounded-full text-muted-foreground hover:text-foreground" aria-label="Nyelvek cseréje">
+          <LanguageSelector label="Bemeneti nyelv" value={inputLang} onChange={setInputLang} languages={LANGUAGES} disabled={isRecording || isStarting || isProcessing || isProcessingSlide || isPolishing} />
+          <Button variant="ghost" size="icon" onClick={swapLanguages} disabled={isRecording || isStarting || isProcessing || isProcessingSlide || isPolishing} className="rounded-full text-muted-foreground hover:text-foreground" aria-label="Nyelvek cseréje">
             <ArrowLeftRight size={20} />
           </Button>
-          <LanguageSelector label="Kimeneti nyelv" value={outputLang} onChange={setOutputLang} languages={LANGUAGES} />
+          <LanguageSelector label="Kimeneti nyelv" value={outputLang} onChange={setOutputLang} languages={LANGUAGES} disabled={isRecording || isStarting || isProcessing || isProcessingSlide || isPolishing} />
         </div>
       </div>
 
@@ -231,19 +295,19 @@ const Index = () => {
       <div className="container mx-auto px-4 py-4 flex flex-col items-center gap-4">
         <div className="relative">
           {isRecording && <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />}
-          <RecordButton isRecording={isRecording} onClick={toggleRecording} disabled={isProcessing && !isRecording} />
+          <RecordButton isRecording={isRecording} onClick={toggleRecording} disabled={isStarting || isProcessingSlide || isPolishing || (isProcessing && !isRecording)} />
         </div>
       </div>
 
       {/* Download + Slide capture buttons */}
       <div className="container mx-auto px-4 flex justify-between items-center">
         <SlideCapture
-          isProcessing={isProcessingSlide}
+          isProcessing={isProcessingSlide || isPolishing || isStarting}
           slideEntries={[]}
           onCapture={handleSlideCapture}
           onDelete={handleSlideDelete}
         />
-        <Button variant="outline" size="sm" onClick={downloadTranscript} disabled={!hasText || isPolishing} className="gap-2">
+        <Button variant="outline" size="sm" onClick={downloadTranscript} disabled={!hasText || isPolishing || isRecording || isStarting || isProcessing || isProcessingSlide} className="gap-2">
           <Download size={16} />
           {isPolishing ? 'Feldolgozás...' : 'Letöltés'}
         </Button>
@@ -260,7 +324,7 @@ const Index = () => {
         {slideEntries.length > 0 && (
           <div className="mt-6">
             <SlideCapture
-              isProcessing={isProcessingSlide}
+              isProcessing={isProcessingSlide || isPolishing || isStarting}
               slideEntries={slideEntries}
               onCapture={handleSlideCapture}
               onDelete={handleSlideDelete}
@@ -275,7 +339,6 @@ const Index = () => {
           {isRecording && "🎤 Felvétel folyamatban..."}
         </p>
       </footer>
-      <DebugPanel />
     </div>
   );
 };

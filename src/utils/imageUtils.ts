@@ -2,50 +2,23 @@ export function resizeImage(file: File, maxWidth = 1280): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
+    const cleanup = () => { URL.revokeObjectURL(url); img.src = ''; };
     img.onload = () => {
+      const canvas = document.createElement('canvas');
       try {
-        URL.revokeObjectURL(url);
-        let { width, height } = img;
-        console.log(`Original image size: ${width}x${height}`);
-        
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
-        const maxHeight = 960;
-        if (height > maxHeight) {
-          width = Math.round((width * maxHeight) / height);
-          height = maxHeight;
-        }
-        
-        console.log(`Resized to: ${width}x${height}`);
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        const ratio = Math.min(1, Math.min(maxWidth, 1280) / img.width, 960 / img.height);
+        canvas.width = Math.max(1, Math.round(img.width * ratio));
+        canvas.height = Math.max(1, Math.round(img.height * ratio));
         const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Could not get canvas context'));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
+        if (!ctx) throw new Error('Could not get canvas context');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-        
-        // Aggressive cleanup for mobile memory
-        canvas.width = 0;
-        canvas.height = 0;
-        (img as any).src = '';
-        
-        console.log(`Base64 length: ${base64.length}`);
+        if (!base64) throw new Error('Could not encode image');
         resolve(base64);
-      } catch (err) {
-        console.error('Canvas resize error:', err);
-        reject(err);
-      }
+      } catch (error) { reject(error); }
+      finally { canvas.width = 0; canvas.height = 0; cleanup(); }
     };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Failed to load image'));
-    };
+    img.onerror = () => { cleanup(); reject(new Error('Failed to load image')); };
     img.src = url;
   });
 }

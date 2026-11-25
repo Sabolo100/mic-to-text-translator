@@ -1,5 +1,9 @@
 import { createRoot } from "react-dom/client";
+import { initLogger } from "./utils/debugLogger";
 import App from "./App.tsx";
 import "./index.css";
 
-createRoot(document.getElementById("root")!).render(<App />);
+initLogger();
+const root = document.getElementById("root");
+if (!root) throw new Error("Application root is missing");
+createRoot(root).render(<App />);

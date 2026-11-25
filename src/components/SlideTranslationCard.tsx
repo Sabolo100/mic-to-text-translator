@@ -1,3 +1,4 @@
+import { readableText } from "../../supabase/functions/_shared/text";
 import { useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ export function SlideTranslationCard({ index, original, translated, onDelete }: 
               {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               Dia {index + 1}
             </CollapsibleTrigger>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onDelete}>
+            <Button variant="ghost" size="icon" aria-label={`Dia ${index + 1} törlése`} className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onDelete}>
               <Trash2 size={14} />
             </Button>
           </div>
@@ -32,11 +33,11 @@ export function SlideTranslationCard({ index, original, translated, onDelete }: 
           <CardContent className="px-4 pb-4 pt-0 space-y-3">
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-1">Eredeti:</p>
-              <p className="text-sm whitespace-pre-wrap">{original}</p>
+              <p className="text-sm whitespace-pre-wrap break-words">{readableText(original)}</p>
             </div>
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-1">Fordítás:</p>
-              <p className="text-sm whitespace-pre-wrap">{translated}</p>
+              <p className="text-sm whitespace-pre-wrap break-words">{readableText(translated)}</p>
             </div>
           </CardContent>
         </CollapsibleContent>
